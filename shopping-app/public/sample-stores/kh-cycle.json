@@ -1,0 +1,67 @@
+{
+  "id": "kh-cycle",
+  "name": "KH Cycle",
+  "alerts": [
+    { "message": "15% storewide discount.", "severity": "success" },
+    {
+      "message": "Free shipping above S$60. Base shipping S$5.",
+      "severity": "info"
+    }
+  ],
+  "shipping": { "baseFee": 5 },
+  "constraints": { "maxQtyPerItem": 3 },
+  "discounts": [
+    { "type": "overallPercent", "percentOff": 15 },
+    { "type": "shippingThreshold", "threshold": 60, "shippingPercentOff": 100 }
+  ],
+  "products": [
+    {
+      "sku": "frame",
+      "name": "Frame",
+      "price": 729,
+      "img": "/img/kh-cycle/frame.png"
+    },
+    {
+      "sku": "handle-bar",
+      "name": "Handle Bar",
+      "price": 49,
+      "img": "/img/kh-cycle/handle-bar.png"
+    },
+    {
+      "sku": "handlebar-grip-2",
+      "name": "Set of two Handle Bar Grip",
+      "price": 15,
+      "img": "/img/kh-cycle/handlebar-grip-2.png"
+    },
+    {
+      "sku": "kickstand",
+      "name": "Kickstand",
+      "price": 33,
+      "img": "/img/kh-cycle/kickstand.png"
+    },
+    {
+      "sku": "lights",
+      "name": "Lights",
+      "price": 62,
+      "img": "/img/kh-cycle/lights.png"
+    },
+    {
+      "sku": "pedals-2",
+      "name": "Set of 2 Pedals",
+      "price": 14,
+      "img": "/img/kh-cycle/pedals-2.png"
+    },
+    {
+      "sku": "seat-post",
+      "name": "Seat Post",
+      "price": 49,
+      "img": "/img/kh-cycle/seat-post.png"
+    },
+    {
+      "sku": "wheels-2",
+      "name": "Set of two Wheels",
+      "price": 439,
+      "img": "/img/kh-cycle/wheels-2.png"
+    }
+  ]
+}

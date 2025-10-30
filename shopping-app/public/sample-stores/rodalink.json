@@ -1,0 +1,94 @@
+{
+  "id": "rodalink",
+  "name": "Rodalink",
+  "alerts": [
+    {
+      "message": "18% storewide discount applied at checkout.",
+      "severity": "success"
+    },
+    {
+      "message": "Free shipping above S$100. Base shipping S$35.",
+      "severity": "info"
+    }
+  ],
+  "shipping": { "baseFee": 35 },
+  "constraints": { "maxQtyPerItem": 3 },
+  "discounts": [
+    { "type": "overallPercent", "percentOff": 18 },
+    { "type": "shippingThreshold", "threshold": 100, "shippingPercentOff": 100 }
+  ],
+  "products": [
+    {
+      "sku": "basket",
+      "name": "Basket",
+      "price": 52,
+      "img": "/img/rodalink/basket.png"
+    },
+    {
+      "sku": "bell",
+      "name": "Bell",
+      "price": 15,
+      "img": "/img/rodalink/bell.png"
+    },
+    {
+      "sku": "frame",
+      "name": "Frame",
+      "price": 2199,
+      "img": "/img/rodalink/frame.png"
+    },
+    {
+      "sku": "gear",
+      "name": "Gear",
+      "price": 79,
+      "img": "/img/rodalink/gear.png"
+    },
+    {
+      "sku": "handle-bar",
+      "name": "Handle Bar",
+      "price": 45,
+      "img": "/img/rodalink/handle-bar.png"
+    },
+    {
+      "sku": "handlebar-grip-2",
+      "name": "Set of 2 Handle Bar Grip",
+      "price": 36,
+      "img": "/img/rodalink/handlebar-grip-2.png"
+    },
+    {
+      "sku": "kickstand",
+      "name": "Kickstand",
+      "price": 12.6,
+      "img": "/img/rodalink/kickstand.png"
+    },
+    {
+      "sku": "lights",
+      "name": "Lights",
+      "price": 30,
+      "img": "/img/rodalink/lights.png"
+    },
+    {
+      "sku": "pedals-2",
+      "name": "Set of 2 Pedals",
+      "price": 35,
+      "img": "/img/rodalink/pedals-2.png"
+    },
+    {
+      "sku": "seats",
+      "name": "Seats",
+      "price": 65,
+      "img": "/img/rodalink/seats.png"
+    },
+    {
+      "sku": "seat-post",
+      "name": "Seat Post",
+      "price": 29,
+      "img": "/img/rodalink/seat-post.png"
+    },
+    {
+      "sku": "wheels-2",
+      "name": "Set of 2 Wheels",
+      "price": 799,
+      "img": "/img/rodalink/wheels-2.png"
+    }
+  ]
+}

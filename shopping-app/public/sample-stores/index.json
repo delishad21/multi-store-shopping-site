@@ -1,0 +1,34 @@
+{
+  "title": "Cycling Online Megastore",
+  "classes": [
+    "1A",
+    "1B",
+    "2A",
+    "2B",
+    "3A",
+    "3B",
+    "4A",
+    "4B",
+    "5A",
+    "5B",
+    "6A",
+    "6B"
+  ],
+  "stores": [
+    {
+      "id": "rodalink",
+      "name": "Rodalink",
+      "cover": "/img/covers/rodalink.jpg"
+    },
+    {
+      "id": "kh-cycle",
+      "name": "KH Cycle",
+      "cover": "/img/covers/kh-cycle.jpg"
+    },
+    {
+      "id": "decathlon",
+      "name": "Decathlon",
+      "cover": "/img/covers/decathlon.jpg"
+    }
+  ]
+}

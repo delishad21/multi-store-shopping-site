@@ -1,0 +1,87 @@
+{
+  "id": "decathlon",
+  "name": "Decathlon",
+  "alerts": [
+    {
+      "message": "Free standard delivery above S$79.90. Base shipping S$24.90.",
+      "severity": "info"
+    }
+  ],
+  "shipping": { "baseFee": 24.9 },
+  "constraints": { "maxQtyPerItem": 3 },
+  "discounts": [
+    {
+      "type": "shippingThreshold",
+      "threshold": 79.9,
+      "shippingPercentOff": 100
+    }
+  ],
+  "products": [
+    {
+      "sku": "basket",
+      "name": "Basket",
+      "price": 19,
+      "img": "/img/decathlon/basket.png"
+    },
+    {
+      "sku": "bell",
+      "name": "Bell",
+      "price": 4,
+      "img": "/img/decathlon/bell.png"
+    },
+    {
+      "sku": "gear",
+      "name": "Gear",
+      "price": 8,
+      "img": "/img/decathlon/gear.png"
+    },
+    {
+      "sku": "handle-bar",
+      "name": "Handle Bar",
+      "price": 20,
+      "img": "/img/decathlon/handle-bar.png"
+    },
+    {
+      "sku": "handlebar-grips-2",
+      "name": "Set of 2 Handle Bar Grips",
+      "price": 15,
+      "img": "/img/decathlon/handlebar-grips-2.png"
+    },
+    {
+      "sku": "kickstand",
+      "name": "Kickstand",
+      "price": 14.9,
+      "img": "/img/decathlon/kickstand.png"
+    },
+    {
+      "sku": "lights",
+      "name": "Lights",
+      "price": 20,
+      "img": "/img/decathlon/lights.png"
+    },
+    {
+      "sku": "pedals-2",
+      "name": "Set of 2 Pedals",
+      "price": 15,
+      "img": "/img/decathlon/pedals-2.png"
+    },
+    {
+      "sku": "seats",
+      "name": "Seats",
+      "price": 32,
+      "img": "/img/decathlon/seats.png"
+    },
+    {
+      "sku": "seat-post",
+      "name": "Seat Post",
+      "price": 369,
+      "img": "/img/decathlon/seat-post.png"
+    },
+    {
+      "sku": "wheels-2",
+      "name": "A set of 2 wheels",
+      "price": 2215,
+      "img": "/img/decathlon/wheels-2.png"
+    }
+  ]
+}
