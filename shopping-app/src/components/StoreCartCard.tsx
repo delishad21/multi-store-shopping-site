@@ -1,5 +1,5 @@
 import { useMemo, useEffect } from "react";
-import { useStore } from "../lib/useStores";
+import { useStore, useStoresList } from "../lib/useStores";
 import { money } from "../lib/format";
 import { priceStore } from "../lib/pricing";
 import type { CalcEntry } from "../lib/types";
@@ -28,14 +28,14 @@ export default function StoreCartCard({
   onClearStore: () => void;
 }) {
   const { store, productsBySku } = useStore(storeId);
+  const { gstRate } = useStoresList(); // ⬅️ read GST (e.g., 0.09) from index.json
   const setQty = useCart((s) => s.setQty);
   const remove = useCart((s) => s.remove);
   const lines = useCart((s) => s.lines[storeId] || {});
 
-  const { entries, l, items, totals } = useMemo(() => {
+  const { l, items, totals } = useMemo(() => {
     if (!store) {
       return {
-        entries: [] as [string, number][],
         l: [] as { sku: string; qty: number }[],
         items: [] as Array<{
           storeId: string;
@@ -67,7 +67,8 @@ export default function StoreCartCard({
       productsBySku,
       l,
       store.discounts,
-      store.shipping.baseFee
+      store.shipping.baseFee,
+      gstRate // ⬅️ pass GST rate through to pricing
     );
 
     const items = l.map(({ sku, qty }) => {
@@ -85,7 +86,7 @@ export default function StoreCartCard({
     });
 
     return { entries, l, items, totals };
-  }, [store, productsBySku, lines, storeId]);
+  }, [store, productsBySku, lines, storeId, gstRate]);
 
   useEffect(() => {
     if (!store) {
@@ -102,9 +103,9 @@ export default function StoreCartCard({
       items: payloadItems,
       totals,
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     store,
-    // depend on cheap primitives to avoid thrash
     store?.id,
     totals.itemsSubtotal,
     totals.itemsDiscount,
@@ -114,6 +115,7 @@ export default function StoreCartCard({
     totals.shippingNet,
     totals.gst,
     totals.storeTotal,
+    gstRate, // ⬅️ recalc/report when GST changes
     JSON.stringify(items.map((i) => [i.sku, i.qty, i.unitPrice])),
   ]);
 

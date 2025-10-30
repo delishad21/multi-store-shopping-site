@@ -2,7 +2,7 @@
 import Grid from "@mui/material/Grid";
 import { useParams } from "react-router-dom";
 import { Typography, Alert, Stack } from "@mui/material";
-import { useStore } from "../lib/useStores";
+import { useStore, useStoresList } from "../lib/useStores";
 import ProductCard from "../components/ProductCard";
 import { useCart } from "../lib/useCart";
 import { priceStore } from "../lib/pricing";
@@ -11,11 +11,12 @@ import StoreTotalsPanel from "../components/StoreTotalsPanel";
 export default function StorePage() {
   const { id } = useParams();
   const { store, productsBySku, loading, error } = useStore(id);
+  const { gstRate } = useStoresList();
   const lines = useCart((s) => s.lines);
 
   if (loading) return <Typography>Loading store…</Typography>;
   if (error) return <Alert severity="error">{error}</Alert>;
-  if (!store) return null; // already handled error/loading
+  if (!store) return null;
 
   const storeLines = Object.entries(lines[store.id] || {}).map(
     ([sku, qty]) => ({ sku, qty })
@@ -24,7 +25,8 @@ export default function StorePage() {
     productsBySku,
     storeLines,
     store.discounts,
-    store.shipping.baseFee
+    store.shipping.baseFee,
+    gstRate
   );
 
   return (
@@ -43,6 +45,7 @@ export default function StorePage() {
           ))}
         </Stack>
       )}
+
       <Typography variant="h5" fontWeight={700}>
         {store.name}
       </Typography>
@@ -57,8 +60,8 @@ export default function StorePage() {
 
       <Alert severity="info">
         Quantities limited to {store.constraints.maxQtyPerItem} per item.
-        Discounts and shipping are calculated per store; GST (9%) applies to
-        items + shipping.
+        Discounts and shipping are calculated per store; GST (
+        {Math.round(gstRate * 100)}%) applies to items + shipping.
       </Alert>
 
       <StoreTotalsPanel totals={totals} />

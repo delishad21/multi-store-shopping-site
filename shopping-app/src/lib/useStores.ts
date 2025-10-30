@@ -3,34 +3,40 @@ import { useEffect, useMemo, useState } from "react";
 import type { Store } from "./types";
 
 export type StoreListItem = { id: string; name: string; cover?: string };
+
 type StoresIndex = {
   title?: string;
   classes?: string[];
   stores?: StoreListItem[];
+  gst?: number; // e.g. 0.09
 };
+
 export function useStoresList() {
   const [stores, setStores] = useState<StoreListItem[]>([]);
   const [siteTitle, setSiteTitle] = useState("School Cart");
   const [classes, setClasses] = useState<string[]>([]);
+  const [gstRate, setGstRate] = useState<number>(0.09); // default 9%
 
   useEffect(() => {
     const ac = new AbortController();
-
     (async () => {
       try {
         const res = await fetch("/stores/index.json", { signal: ac.signal });
         if (!res.ok)
           throw new Error(`Failed to load index.json (${res.status})`);
-        const json: StoresIndex = await res.json();
+        const json: StoresIndex | StoreListItem[] = await res.json();
 
         if (Array.isArray(json)) {
+          // legacy format
           setStores(json);
           setSiteTitle("School Cart");
           setClasses([]);
+          setGstRate(0.09);
         } else {
           setStores(json.stores ?? []);
           setSiteTitle(json.title ?? "School Cart");
           setClasses(json.classes ?? []);
+          setGstRate(typeof json.gst === "number" ? json.gst : 0.09);
         }
       } catch (e) {
         if ((e as any)?.name !== "AbortError") {
@@ -38,14 +44,14 @@ export function useStoresList() {
           setStores([]);
           setSiteTitle("School Cart");
           setClasses([]);
+          setGstRate(0.09);
         }
       }
     })();
-
     return () => ac.abort();
   }, []);
 
-  return { stores, siteTitle, classes };
+  return { stores, siteTitle, classes, gstRate };
 }
 
 export function useStore(id?: string) {
@@ -56,11 +62,9 @@ export function useStore(id?: string) {
   useEffect(() => {
     if (!id) return;
     const ac = new AbortController();
-
     setLoading(true);
     setError(undefined);
     setStore(null);
-
     (async () => {
       try {
         const res = await fetch(`/stores/${id}.json`, { signal: ac.signal });
@@ -79,7 +83,6 @@ export function useStore(id?: string) {
         }
       }
     })();
-
     return () => ac.abort();
   }, [id]);
 

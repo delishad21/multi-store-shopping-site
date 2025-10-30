@@ -53,7 +53,7 @@ export default function App() {
 
         <Tabs
           value={tabValue}
-          onChange={(e, v) => nav(`/store/${v}`)}
+          onChange={(_, v) => nav(`/store/${v}`)}
           variant="scrollable"
           scrollButtons
           allowScrollButtonsMobile

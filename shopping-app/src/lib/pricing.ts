@@ -1,12 +1,12 @@
+// lib/pricing.ts
 import type { DiscountRule, Product, StoreTotals } from "./types";
-
-const GST_RATE = 0.09;
 
 export function priceStore(
   productsBySku: Record<string, Product>,
   lines: { sku: string; qty: number }[],
   discounts: DiscountRule[],
-  baseShipping: number
+  baseShipping: number,
+  gstRate: number = 0.09
 ): StoreTotals {
   const units: number[] = [];
   let itemsSubtotal = 0;
@@ -38,7 +38,7 @@ export function priceStore(
     itemsNet -= extra;
   }
 
-  let shippingBase = baseShipping;
+  const shippingBase = baseShipping;
   let shippingDiscount = 0;
   const shipRule = discounts.find((d) => d.type === "shippingThreshold") as
     | {
@@ -53,7 +53,7 @@ export function priceStore(
 
   const shippingNet = Math.max(0, shippingBase - shippingDiscount);
   const netBeforeGST = itemsNet + shippingNet;
-  const gst = round2(netBeforeGST * GST_RATE);
+  const gst = round2(netBeforeGST * gstRate);
   const storeTotal = round2(netBeforeGST + gst);
 
   return {
