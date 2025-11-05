@@ -16,41 +16,56 @@ import {
 import { useForm, Controller } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { money } from "../lib/format";
 
 async function postToAppsScript(url: string, payload: unknown) {
   const body = JSON.stringify(payload);
-  const ac = new AbortController();
-  const timeout = setTimeout(() => ac.abort(), 15000);
 
-  console.log("[GAS] POST →", url, payload);
+  console.log("POST →", url, payload);
   try {
-    const res = await fetch(url, {
+    await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "text/plain;charset=utf-8" },
+      mode: "no-cors",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8",
+      },
       body,
-      signal: ac.signal,
     });
-    const text = await res.text().catch(() => "<no text>");
-    console.log("[GAS] status:", res.status, "ok:", res.ok, "body:", text);
-    let json: any = null;
-    try {
-      json = JSON.parse(text);
-    } catch {}
-    return { ok: res.ok, status: res.status, text, json };
+
+    console.log("request sent (no-cors, response not inspectable)");
+    return { ok: true, status: 0, text: "", json: null };
   } catch (err) {
-    console.error("[GAS] network error:", err);
+    console.error("network error:", err);
     return { ok: false, status: 0, text: String(err), json: null };
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
-type JustEntry = { sku: string; text: string };
+/** Apps Script overall-discounts payload shape */
+type OverallDiscountsSummary = {
+  grandTotalBeforeDiscounts: number;
+  grandTotalAfterDiscounts: number;
+  percentDiscountAmount: number;
+  absoluteDiscountAmount: number;
+  appliedCodes: {
+    code: string;
+    kind: "percent" | "absolute";
+    amount: number;
+    description?: string;
+  }[];
+  capApplied?: boolean;
+  configuredCap?: {
+    absoluteMax?: number | null;
+    percentMax?: number | null;
+  } | null;
+};
+
+/** A single justification row (form stores the composite key, not plain sku) */
+type JustEntry = { key: string; text: string };
 
 export type CheckoutFormValues = {
   name: string;
   className: string;
-  justifications: JustEntry[]; // ≤ 3
+  justifications: { sku: string; text: string }[];
 };
 
 export type CheckoutItem = {
@@ -68,11 +83,15 @@ const baseSchema = z.object({
   className: z.string().min(1, "Required"),
   justifications: z.array(
     z.object({
-      sku: z.string().min(1, "Pick a product"),
+      key: z.string().min(1, "Pick a product"),
       text: z.string().min(1, "Tell us why"),
     })
   ),
 });
+
+function keyOf(i: CheckoutItem) {
+  return `${i.storeName || "Store"}::${i.sku}`;
+}
 
 export default function CheckoutFormDialog({
   open,
@@ -83,6 +102,7 @@ export default function CheckoutFormDialog({
   appsScriptUrl,
   grandTotal,
   perStoreTotals,
+  overallDiscounts,
 }: {
   open: boolean;
   onClose: () => void;
@@ -96,19 +116,35 @@ export default function CheckoutFormDialog({
     storeName?: string;
     itemsSubtotal: number;
     itemsDiscount: number;
+    itemsNet: number;
+    shippingBase: number;
+    shippingDiscount: number;
     shippingNet: number;
     gst: number;
     storeTotal: number;
   }>;
+  overallDiscounts?: OverallDiscountsSummary;
 }) {
-  const uniqueSkus = useMemo(
-    () =>
-      Array.from(
-        new Set(items.filter((i) => (i.qty ?? 0) > 0).map((i) => i.sku))
-      ),
+  const itemsInCart = useMemo(
+    () => items.filter((i) => (i.qty ?? 0) > 0),
     [items]
   );
-  const justifyCount = Math.min(3, uniqueSkus.length);
+
+  const optionList = useMemo(
+    () =>
+      itemsInCart.map((i) => ({
+        key: keyOf(i),
+        item: i,
+      })),
+    [itemsInCart]
+  );
+
+  const uniqueKeys = useMemo(
+    () => Array.from(new Set(optionList.map((o) => o.key))),
+    [optionList]
+  );
+
+  const justifyCount = Math.min(3, uniqueKeys.length);
 
   const schema = useMemo(
     () =>
@@ -123,10 +159,10 @@ export default function CheckoutFormDialog({
   const defaultJustifications = useMemo<JustEntry[]>(
     () =>
       Array.from({ length: justifyCount }).map((_, i) => ({
-        sku: uniqueSkus[i] ?? "",
+        key: uniqueKeys[i] ?? "",
         text: "",
       })),
-    [uniqueSkus, justifyCount]
+    [uniqueKeys, justifyCount]
   );
 
   const {
@@ -136,39 +172,55 @@ export default function CheckoutFormDialog({
     formState: { errors, isSubmitting },
     reset,
     watch,
-  } = useForm<CheckoutFormValues>({
-    resolver: zodResolver(schema),
-    defaultValues: {
-      name: "",
-      className: "",
-      justifications: defaultJustifications,
-    },
-    values: open
-      ? {
-          name: "",
-          className: "",
-          justifications: defaultJustifications,
-        }
-      : undefined,
-  });
-
-  useEffect(() => {
-    if (open) {
-      reset({
+    getValues,
+  } = useForm<{ name: string; className: string; justifications: JustEntry[] }>(
+    {
+      resolver: zodResolver(schema),
+      defaultValues: {
         name: "",
         className: "",
         justifications: defaultJustifications,
-      });
+      },
     }
-  }, [open, reset, defaultJustifications]);
+  );
 
-  const chosenSkus = watch("justifications").map((j) => j.sku);
-  const optionDisabled = (sku: string, idx: number) =>
-    sku !== "" && chosenSkus.some((s, i) => i !== idx && s === sku);
+  useEffect(() => {
+    if (!open) return;
 
-  const bySku = useMemo(
-    () => Object.fromEntries(items.map((i) => [i.sku, i] as const)),
-    [items]
+    const current = getValues();
+    const visible = (current.justifications ?? []).slice(0, justifyCount);
+    const next: JustEntry[] = Array.from({ length: justifyCount }).map(
+      (_, i) => {
+        const candidate = visible[i];
+        const keyOk =
+          candidate?.key && uniqueKeys.includes(candidate.key)
+            ? candidate.key
+            : uniqueKeys[i] ?? "";
+        return {
+          key: keyOk,
+          text: candidate?.text ?? "",
+        };
+      }
+    );
+
+    reset(
+      {
+        name: current.name ?? "",
+        className: current.className ?? "",
+        justifications: next,
+      },
+      { keepDirty: false, keepTouched: false }
+    );
+  }, [open, justifyCount, uniqueKeys.join("|")]);
+
+  const visibleJusts = (watch("justifications") ?? []).slice(0, justifyCount);
+  const chosenKeys = visibleJusts.map((j) => j?.key ?? "");
+  const optionDisabled = (key: string, index: number) =>
+    key !== "" && chosenKeys.some((k, i) => i !== index && k === key);
+
+  const byKey = useMemo(
+    () => Object.fromEntries(optionList.map((o) => [o.key, o.item] as const)),
+    [optionList]
   );
 
   const MenuProps = useMemo(
@@ -181,43 +233,51 @@ export default function CheckoutFormDialog({
     []
   );
 
-  const renderOptionRow = (opt: CheckoutItem) => (
-    <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
-      <Box
-        component="img"
-        src={opt.img}
-        alt={opt.name}
-        loading="lazy"
-        referrerPolicy="no-referrer"
-        sx={{
-          width: 36,
-          height: 36,
-          borderRadius: 0.75,
-          objectFit: "cover",
-          flexShrink: 0,
-          bgcolor: "action.hover",
-        }}
-      />
-      <Box sx={{ minWidth: 0 }}>
-        <Typography noWrap fontWeight={600} title={opt.name}>
-          {opt.name}
-        </Typography>
-        <Typography
-          variant="caption"
-          color="text.secondary"
-          noWrap
-          title={opt.storeName}
-        >
-          ({opt.storeName || "Store"})
-        </Typography>
+  const renderOptionRow = (opt: CheckoutItem) => {
+    const qty = opt.qty ?? 0;
+    const unit = opt.unitPrice ?? 0;
+    const line = qty * unit;
+    return (
+      <Box sx={{ display: "flex", alignItems: "center", gap: 1.25 }}>
+        <Box
+          component="img"
+          src={opt.img}
+          alt={opt.name}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          sx={{
+            width: 36,
+            height: 36,
+            borderRadius: 0.75,
+            objectFit: "cover",
+            flexShrink: 0,
+            bgcolor: "action.hover",
+          }}
+        />
+        <Box sx={{ minWidth: 0 }}>
+          <Typography noWrap fontWeight={600} title={opt.name}>
+            {opt.name}
+          </Typography>
+          <Typography
+            variant="caption"
+            color="text.secondary"
+            noWrap
+            title={opt.storeName}
+          >
+            ({opt.storeName || "Store"})
+          </Typography>
+        </Box>
+        <Box sx={{ ml: "auto", pl: 1, textAlign: "right" }}>
+          <Typography variant="body2" color="text.secondary">
+            {qty} × {money(unit)}
+          </Typography>
+          <Typography variant="caption" fontWeight={600}>
+            {money(line)}
+          </Typography>
+        </Box>
       </Box>
-      <Box sx={{ ml: "auto", pl: 1 }}>
-        <Typography variant="body2" color="text.secondary">
-          {(opt.qty ?? 0) + "×"}
-        </Typography>
-      </Box>
-    </Box>
-  );
+    );
+  };
 
   const computeItemsByStore = (list: CheckoutItem[]) => {
     const out: Record<string, CheckoutItem[]> = {};
@@ -229,20 +289,37 @@ export default function CheckoutFormDialog({
   };
 
   const submitHandler = handleSubmit(async (values) => {
-    const justifications = values.justifications
-      .filter((j) => j.sku && j.text.trim())
-      .slice(0, 3);
+    const compactJusts = (values.justifications ?? [])
+      .slice(0, justifyCount)
+      .filter((j) => j.key && j.text.trim())
+      .map(({ key, text }) => {
+        const it = byKey[key];
+        return { sku: it?.sku ?? "", text };
+      })
+      .filter((j) => j.sku);
+
+    const payloadJusts = (values.justifications ?? [])
+      .slice(0, justifyCount)
+      .filter((j) => j.key && j.text.trim())
+      .map(({ key, text }) => {
+        const it = byKey[key];
+        return {
+          sku: it?.sku ?? "",
+          storeName: it?.storeName ?? "Store",
+          text,
+        };
+      });
 
     const payload = {
       name: values.name,
       className: values.className,
-      justifications,
+      justifications: payloadJusts,
       items,
       itemsByStore: computeItemsByStore(items),
-      perStoreTotals, // ✅ now included
+      perStoreTotals,
       grandTotal,
+      overallDiscounts,
       createdAt: new Date().toISOString(),
-      // Optional: idempotency key to dedupe retries server-side
       idemKey: crypto?.randomUUID?.() ?? String(Date.now()),
     };
 
@@ -255,7 +332,11 @@ export default function CheckoutFormDialog({
       }
     }
 
-    onSubmit({ ...values, justifications });
+    onSubmit({
+      name: values.name,
+      className: values.className,
+      justifications: compactJusts,
+    });
   });
 
   return (
@@ -291,7 +372,7 @@ export default function CheckoutFormDialog({
           />
 
           <TextField
-            label="Class"
+            label="Group"
             select
             {...register("className")}
             error={!!errors.className}
@@ -314,35 +395,38 @@ export default function CheckoutFormDialog({
             <Box key={idx} sx={{ display: "grid", gap: 1 }}>
               <Controller
                 control={control}
-                name={`justifications.${idx}.sku`}
+                name={`justifications.${idx}.key`}
                 render={({ field }) => (
                   <TextField
                     select
                     label={`Product #${idx + 1}`}
                     value={field.value}
                     onChange={(e) => field.onChange(e.target.value)}
-                    error={!!errors.justifications?.[idx]?.sku}
-                    helperText={errors.justifications?.[idx]?.sku?.message}
+                    error={!!errors.justifications?.[idx]?.key}
+                    helperText={errors.justifications?.[idx]?.key?.message}
                     fullWidth
                     SelectProps={{
                       MenuProps,
-                      renderValue: (sku) => {
-                        const opt = bySku[sku as string];
-                        if (!opt) return <em>Select a product…</em>;
-                        return renderOptionRow(opt);
+                      renderValue: (value) => {
+                        const opt = byKey[String(value)];
+                        return opt ? (
+                          renderOptionRow(opt)
+                        ) : (
+                          <em>Select a product…</em>
+                        );
                       },
                     }}
                   >
                     <MenuItem value="">
                       <em>Select a product…</em>
                     </MenuItem>
-                    {items.map((opt) => (
+                    {optionList.map(({ key, item }) => (
                       <MenuItem
-                        key={opt.sku}
-                        value={opt.sku}
-                        disabled={optionDisabled(opt.sku, idx)}
+                        key={key}
+                        value={key}
+                        disabled={optionDisabled(key, idx)}
                       >
-                        {renderOptionRow(opt)}
+                        {renderOptionRow(item)}
                       </MenuItem>
                     ))}
                   </TextField>

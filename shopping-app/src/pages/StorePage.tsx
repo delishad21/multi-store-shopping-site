@@ -1,4 +1,3 @@
-// pages/StorePage.tsx
 import Grid from "@mui/material/Grid";
 import { useParams } from "react-router-dom";
 import { Typography, Alert, Stack } from "@mui/material";
@@ -43,6 +42,17 @@ export default function StorePage() {
               {a.message}
             </Alert>
           ))}
+          {store.showDiscountBreakdown === false && (
+            <Alert
+              severity="warning"
+              variant="outlined"
+              sx={{ borderRadius: 2 }}
+            >
+              The discount calculation system for the store is down. The overall
+              discounts shown are still accurate, but per item discounts will
+              not be shown.
+            </Alert>
+          )}
         </Stack>
       )}
 
@@ -61,10 +71,13 @@ export default function StorePage() {
       <Alert severity="info">
         Quantities limited to {store.constraints.maxQtyPerItem} per item.
         Discounts and shipping are calculated per store; GST (
-        {Math.round(gstRate * 100)}%) applies to items + shipping.
+        {Math.round(gstRate * 100)}%) applies to items only
       </Alert>
 
-      <StoreTotalsPanel totals={totals} />
+      <StoreTotalsPanel
+        totals={totals}
+        showBreakdown={store.showDiscountBreakdown !== false}
+      />
     </Stack>
   );
 }

@@ -2,7 +2,7 @@ import { useMemo, useEffect } from "react";
 import { useStore, useStoresList } from "../lib/useStores";
 import { money } from "../lib/format";
 import { priceStore } from "../lib/pricing";
-import type { CalcEntry } from "../lib/types";
+import type { CalcEntry, StoreTotals } from "../lib/types";
 import { useCart } from "../lib/useCart";
 import StoreTotalsPanel from "./StoreTotalsPanel";
 import {
@@ -12,6 +12,7 @@ import {
   Stack,
   Typography,
   IconButton,
+  Alert,
 } from "@mui/material";
 
 import AddIcon from "@mui/icons-material/Add";
@@ -28,7 +29,7 @@ export default function StoreCartCard({
   onClearStore: () => void;
 }) {
   const { store, productsBySku } = useStore(storeId);
-  const { gstRate } = useStoresList(); // ⬅️ read GST (e.g., 0.09) from index.json
+  const { gstRate } = useStoresList();
   const setQty = useCart((s) => s.setQty);
   const remove = useCart((s) => s.remove);
   const lines = useCart((s) => s.lines[storeId] || {});
@@ -44,8 +45,10 @@ export default function StoreCartCard({
           img: string;
           qty: number;
           unitPrice: number;
-          lineTotal: number;
+          originalLineTotal: number;
+          finalLineTotal: number;
           maxQ: number;
+          discounts: { label: string; amount: number }[];
         }>,
         totals: {
           itemsSubtotal: 0,
@@ -56,7 +59,11 @@ export default function StoreCartCard({
           shippingNet: 0,
           gst: 0,
           storeTotal: 0,
-        },
+          perItem: [],
+          discountFlags: {
+            nthAppliedUnits: [],
+          },
+        } as StoreTotals,
       };
     }
 
@@ -68,45 +75,55 @@ export default function StoreCartCard({
       l,
       store.discounts,
       store.shipping.baseFee,
-      gstRate // ⬅️ pass GST rate through to pricing
+      gstRate
     );
 
-    const items = l.map(({ sku, qty }) => {
-      const p = productsBySku[sku];
-      return {
+    const items =
+      (totals.perItem || []).map((pi) => ({
         storeId,
-        sku,
-        name: p?.name || sku,
-        img: p?.img || "",
-        qty,
-        unitPrice: p?.price || 0,
-        lineTotal: (p?.price || 0) * qty,
+        sku: pi.sku,
+        name: pi.name,
+        img: pi.img,
+        qty: pi.qty,
+        unitPrice: pi.unitPrice,
+        originalLineTotal: pi.originalLineTotal,
+        finalLineTotal: pi.finalLineTotal,
         maxQ: store.constraints.maxQtyPerItem,
-      };
-    });
+        discounts: (pi.discounts || []).map((d) => ({
+          label: d.label,
+          amount: d.amount,
+        })),
+      })) ?? [];
 
     return { entries, l, items, totals };
   }, [store, productsBySku, lines, storeId, gstRate]);
 
   useEffect(() => {
-    if (!store) {
+    if (!store || l.length === 0) {
       onCalcChange(null);
       return;
     }
-    if (l.length === 0) {
-      onCalcChange(null);
-      return;
-    }
-    const payloadItems = items.map(({ maxQ, ...rest }) => rest);
+
+    const payloadItems: CalcEntry["items"] = items.map(
+      ({ maxQ, discounts, originalLineTotal, finalLineTotal, ...rest }) => ({
+        ...rest,
+        storeName: store.name,
+        lineTotal: finalLineTotal,
+        originalLineTotal,
+        finalLineTotal,
+        discounts,
+      })
+    );
+
     onCalcChange({
       store,
       items: payloadItems,
       totals,
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     store,
     store?.id,
+    l.length,
     totals.itemsSubtotal,
     totals.itemsDiscount,
     totals.itemsNet,
@@ -115,8 +132,16 @@ export default function StoreCartCard({
     totals.shippingNet,
     totals.gst,
     totals.storeTotal,
-    gstRate, // ⬅️ recalc/report when GST changes
-    JSON.stringify(items.map((i) => [i.sku, i.qty, i.unitPrice])),
+    gstRate,
+    JSON.stringify(
+      items.map((i) => [
+        i.sku,
+        i.qty,
+        i.unitPrice,
+        i.originalLineTotal,
+        i.finalLineTotal,
+      ])
+    ),
   ]);
 
   if (!store) {
@@ -134,6 +159,8 @@ export default function StoreCartCard({
     return null;
   }
 
+  const showBreakdown = store.showDiscountBreakdown !== false;
+
   return (
     <Paper sx={{ p: 2 }}>
       <Box sx={{ display: "flex", alignItems: "center", gap: 1, mb: 1 }}>
@@ -145,80 +172,130 @@ export default function StoreCartCard({
         </Button>
       </Box>
 
+      {!showBreakdown && (
+        <Alert severity="warning" sx={{ mb: 1.5, borderRadius: 2 }}>
+          The discount calculation system for the store is down. The overall
+          discounts shown are still accurate, but per item discounts will not be
+          shown.
+        </Alert>
+      )}
+
       <Stack spacing={1.5}>
-        {items.map((i) => (
-          <Box
-            key={`${i.storeId}-${i.sku}`}
-            sx={{
-              display: "flex",
-              alignItems: "center",
-              gap: 1.5,
-              py: 1,
-              borderBottom: "1px solid",
-              borderColor: "divider",
-              "&:last-of-type": { borderBottom: "none" },
-            }}
-          >
+        {items.map((i) => {
+          const hasDiscounts = showBreakdown && (i.discounts?.length ?? 0) > 0;
+          const showStrike =
+            showBreakdown && i.finalLineTotal < i.originalLineTotal;
+
+          return (
             <Box
-              component="img"
-              src={i.img}
-              alt={i.name}
+              key={`${i.storeId}-${i.sku}`}
               sx={{
-                width: 64,
-                height: 64,
-                borderRadius: 1,
-                objectFit: "cover",
-                flexShrink: 0,
+                display: "flex",
+                alignItems: "center",
+                gap: 1.5,
+                py: 1,
+                borderBottom: "1px solid",
+                borderColor: "divider",
+                "&:last-of-type": { borderBottom: "none" },
               }}
-            />
-            <Box sx={{ flex: 1, minWidth: 0 }}>
-              <Typography noWrap title={i.name} fontWeight={600}>
-                {i.name}
-              </Typography>
-              <Typography variant="body2" color="text.secondary">
-                {money(i.unitPrice)} each
-              </Typography>
-            </Box>
+            >
+              <Box
+                component="img"
+                src={i.img}
+                alt={i.name}
+                sx={{
+                  width: 64,
+                  height: 64,
+                  borderRadius: 1,
+                  objectFit: "cover",
+                  flexShrink: 0,
+                  bgcolor: "action.hover",
+                }}
+              />
+              <Box sx={{ flex: 1, minWidth: 0 }}>
+                <Typography noWrap title={i.name} fontWeight={600}>
+                  {i.name}
+                </Typography>
 
-            <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
-              <IconButton
-                size="small"
-                onClick={() => setQty(i.storeId, i.sku, i.qty - 1)}
-                aria-label="Decrease"
-              >
-                <RemoveIcon />
-              </IconButton>
-              <Typography width={20} textAlign="center">
-                {i.qty}
-              </Typography>
-              <IconButton
-                size="small"
-                onClick={() =>
-                  setQty(
-                    i.storeId,
-                    i.sku,
-                    Math.min(store.constraints.maxQtyPerItem, i.qty + 1)
-                  )
-                }
-                aria-label="Increase"
-              >
-                <AddIcon />
-              </IconButton>
-              <IconButton
-                size="small"
-                color="error"
-                onClick={() => remove(i.storeId, i.sku)}
-                aria-label="Remove"
-              >
-                <DeleteIcon />
-              </IconButton>
-            </Box>
+                {showBreakdown ? (
+                  <Stack spacing={0.25}>
+                    <Typography variant="body2" color="text.secondary">
+                      {money(i.unitPrice)} each × {i.qty}
+                    </Typography>
+                    {hasDiscounts &&
+                      i.discounts!.map((d, idx) => (
+                        <Typography
+                          key={idx}
+                          variant="caption"
+                          color="success.main"
+                          sx={{ display: "block" }}
+                        >
+                          − {d.label}: {money(d.amount)}
+                        </Typography>
+                      ))}
+                  </Stack>
+                ) : (
+                  <Typography variant="body2" color="text.secondary">
+                    {money(i.unitPrice)} each × {i.qty}
+                  </Typography>
+                )}
+              </Box>
 
-            <Typography sx={{ width: 88, textAlign: "right", fontWeight: 600 }}>
-              {money(i.lineTotal)}
-            </Typography>
-          </Box>
-        ))}
+              <Box sx={{ display: "flex", alignItems: "center", gap: 1 }}>
+                <IconButton
+                  size="small"
+                  onClick={() => setQty(i.storeId, i.sku, i.qty - 1)}
+                  aria-label="Decrease"
+                >
+                  <RemoveIcon />
+                </IconButton>
+                <Typography width={20} textAlign="center">
+                  {i.qty}
+                </Typography>
+                <IconButton
+                  size="small"
+                  onClick={() =>
+                    setQty(
+                      i.storeId,
+                      i.sku,
+                      Math.min(store.constraints.maxQtyPerItem, i.qty + 1)
+                    )
+                  }
+                  aria-label="Increase"
+                >
+                  <AddIcon />
+                </IconButton>
+                <IconButton
+                  size="small"
+                  color="error"
+                  onClick={() => remove(i.storeId, i.sku)}
+                  aria-label="Remove"
+                >
+                  <DeleteIcon />
+                </IconButton>
+              </Box>
+
+              <Box sx={{ width: 120, textAlign: "right" }}>
+                {showStrike ? (
+                  <Stack alignItems="flex-end">
+                    <Typography
+                      sx={{ textDecoration: "line-through", opacity: 0.6 }}
+                    >
+                      {money(i.originalLineTotal)}
+                    </Typography>
+                    <Typography fontWeight={700} color="success.main">
+                      {money(i.finalLineTotal)}
+                    </Typography>
+                  </Stack>
+                ) : (
+                  <Typography fontWeight={600}>
+                    {money(i.finalLineTotal)}
+                  </Typography>
+                )}
+              </Box>
+            </Box>
+          );
+        })}
       </Stack>
 
       <Box sx={{ mt: 2 }}>

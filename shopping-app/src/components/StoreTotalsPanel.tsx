@@ -2,7 +2,31 @@ import { Box, Divider, Stack, Typography } from "@mui/material";
 import { money } from "../lib/format";
 import type { StoreTotals } from "../lib/types";
 
-export default function StoreTotalsPanel({ totals }: { totals: StoreTotals }) {
+/**
+ * Renders totals with optional breakdown.
+ * - Items subtotal / discounts / items net
+ * - GST (items only)
+ * - Shipping base / discount / to pay
+ * - Store total
+ */
+export default function StoreTotalsPanel({
+  totals,
+  showBreakdown = true,
+}: {
+  totals: StoreTotals;
+  showBreakdown?: boolean;
+}) {
+  const {
+    itemsSubtotal,
+    itemsDiscount,
+    itemsNet,
+    shippingBase,
+    shippingDiscount,
+    shippingNet,
+    gst,
+    storeTotal,
+  } = totals;
+
   return (
     <Box
       sx={{
@@ -13,13 +37,34 @@ export default function StoreTotalsPanel({ totals }: { totals: StoreTotals }) {
       }}
     >
       <Stack spacing={0.5}>
-        <Row k="Items subtotal" v={money(totals.itemsSubtotal)} />
-        <Row k="Discounts" v={`- ${money(totals.itemsDiscount)}`} />
+        <Row k="Items subtotal" v={money(itemsSubtotal)} />
+
+        {showBreakdown ? (
+          <>
+            <Row k="Item discounts" v={`- ${money(itemsDiscount)}`} />
+            <Row k="Items net (after discounts)" v={money(itemsNet)} />
+          </>
+        ) : (
+          <Row k="Discounts" v={`- ${money(itemsDiscount)}`} />
+        )}
+
+        <Row k="GST (items only)" v={money(gst)} />
+
         <Divider />
-        <Row k="Shipping" v={money(totals.shippingNet)} />
-        <Row k="GST (9%)" v={money(totals.gst)} />
+
+        {showBreakdown ? (
+          <>
+            <Row k="Shipping (base)" v={money(shippingBase)} />
+            <Row k="Shipping discount" v={`- ${money(shippingDiscount)}`} />
+            <Row k="Shipping to pay" v={money(shippingNet)} />
+          </>
+        ) : (
+          <Row k="Shipping" v={money(shippingNet)} />
+        )}
+
         <Divider />
-        <Row k="Store total" v={money(totals.storeTotal)} strong />
+
+        <Row k="Store total" v={money(storeTotal)} strong />
       </Stack>
     </Box>
   );
