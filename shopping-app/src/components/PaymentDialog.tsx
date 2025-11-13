@@ -17,6 +17,12 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import type { CheckoutFormValues } from "./CheckoutFormDialog";
 
+/** Env-driven switch (Vite) */
+export const USE_PROXY =
+  import.meta.env.VITE_USE_PROXY === "true" || import.meta.env.PROD;
+export const GAS_URL = String(import.meta.env.VITE_APPS_SCRIPT_URL || "");
+
+/** Direct-to-GAS (dev) */
 async function postToAppsScript(url: string, payload: unknown) {
   const body = JSON.stringify(payload);
   try {
@@ -31,6 +37,21 @@ async function postToAppsScript(url: string, payload: unknown) {
     console.error("[GAS] network error:", err);
     return { ok: false };
   }
+}
+
+/** Via same-origin proxy (prod) */
+export async function postToAppsScriptViaProxy(payload: unknown) {
+  const res = await fetch("/api/apps-script", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    credentials: "include",
+    body: JSON.stringify(payload),
+  });
+  const ct = res.headers.get("content-type") || "";
+  const body = ct.includes("application/json")
+    ? await res.json().catch(() => null)
+    : await res.text();
+  return { ok: res.ok, body };
 }
 
 type OverallDiscountsSummary = {
@@ -51,7 +72,6 @@ type OverallDiscountsSummary = {
   } | null;
 };
 
-// The item shape you already send to Apps Script
 export type PostedItem = {
   storeId: string;
   storeName?: string;
@@ -66,14 +86,9 @@ export type PostedItem = {
   lineTotal: number;
 };
 
-// ---------- Gift Card types (number + balance only) ----------
-type GiftCardRow = {
-  number: string; // digits/string identifier
-  balance: number; // available mock funds
-};
+type GiftCardRow = { number: string; balance: number };
 type GiftCardsFile = { cards: GiftCardRow[] };
 
-// Only one field now: the gift card number
 const schema = z.object({
   cardNumber: z
     .string()
@@ -85,6 +100,7 @@ export default function PaymentDialog({
   open,
   onClose,
   amount,
+  /** Optional override for direct URL (mainly for dev/testing) */
   appsScriptUrl,
   items,
   perStoreTotals,
@@ -95,7 +111,7 @@ export default function PaymentDialog({
   open: boolean;
   onClose: () => void;
   amount: number;
-  appsScriptUrl?: string;
+  appsScriptUrl?: string; // optional override; otherwise uses GAS_URL in dev
   items: PostedItem[];
   perStoreTotals: Array<{
     storeId: string;
@@ -169,7 +185,6 @@ export default function PaymentDialog({
       return;
     }
 
-    // Build payment info payload
     const balanceBefore = Number(found.balance ?? 0);
     const chargeAmount = Number(amount ?? 0);
     const balanceAfter = Number((balanceBefore - chargeAmount).toFixed(2));
@@ -203,15 +218,32 @@ export default function PaymentDialog({
       idemKey: crypto?.randomUUID?.() ?? String(Date.now()),
     };
 
-    if (appsScriptUrl) {
-      const ok = await postToAppsScript(appsScriptUrl, payload);
-      if (!ok.ok) {
-        setError("cardNumber", {
-          type: "validate",
-          message: "Failed to record payment (network).",
-        });
-        return;
+    // --- Env-driven posting decision ---
+    let postedOk = true;
+
+    if (USE_PROXY) {
+      // Production: same-origin proxy
+      const res = await postToAppsScriptViaProxy(payload);
+      postedOk = res.ok;
+      if (!res.ok) console.error("[GAS] proxy failed:", res.body);
+    } else {
+      // Development: direct to GAS (requires CORS ok on GAS)
+      const directUrl = appsScriptUrl || GAS_URL;
+      if (!directUrl) {
+        console.error("[GAS] Missing VITE_APPS_SCRIPT_URL or appsScriptUrl");
+        postedOk = false;
+      } else {
+        const res = await postToAppsScript(directUrl, payload);
+        postedOk = res.ok;
       }
+    }
+
+    if (!postedOk) {
+      setError("cardNumber", {
+        type: "validate",
+        message: "Failed to record payment. Please try again.",
+      });
+      return;
     }
 
     onPaid(payload);
