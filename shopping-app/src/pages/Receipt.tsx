@@ -390,20 +390,23 @@ export default function Receipt() {
                       {showBreakdown && (
                         <Row label="Items net" value={money(s.itemsNet ?? 0)} />
                       )}
+                      <Row label="GST" value={money(s.gst ?? 0)} />
                       {showBreakdown ? (
                         <>
                           <Row
-                            label="Shipping (base)"
+                            label="Shipping fees"
                             value={money(s.shippingBase ?? 0)}
                           />
-                          <Row
-                            label="Shipping discounts"
-                            value={"- " + money(s.shippingDiscount ?? 0)}
-                          />
-                          <Row
+                          {s.shippingDiscount > 0 && (
+                            <Row
+                              label="Shipping discounts"
+                              value={"- " + money(s.shippingDiscount ?? 0)}
+                            />
+                          )}
+                          {/* <Row
                             label="Shipping net"
                             value={money(s.shippingNet ?? 0)}
-                          />
+                          /> */}
                         </>
                       ) : (
                         <Row
@@ -411,7 +414,6 @@ export default function Receipt() {
                           value={money(s.shippingNet ?? 0)}
                         />
                       )}
-                      <Row label="GST" value={money(s.gst ?? 0)} />
                     </Stack>
                   </Box>
                 );

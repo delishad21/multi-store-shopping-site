@@ -54,9 +54,10 @@ export default function StoreTotalsPanel({
 
         {showBreakdown ? (
           <>
-            <Row k="Shipping (base)" v={money(shippingBase)} />
-            <Row k="Shipping discount" v={`- ${money(shippingDiscount)}`} />
-            <Row k="Shipping to pay" v={money(shippingNet)} />
+            <Row k="Shipping fees" v={money(shippingBase)} />
+            {shippingDiscount > 0 && (
+              <Row k="Shipping discount" v={`- ${money(shippingDiscount)}`} />
+            )}
           </>
         ) : (
           <Row k="Shipping" v={money(shippingNet)} />

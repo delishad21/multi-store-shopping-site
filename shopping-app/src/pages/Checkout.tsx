@@ -1,3 +1,4 @@
+// src/pages/Checkout.tsx
 import { useMemo, useState } from "react";
 import {
   Box,
@@ -14,11 +15,13 @@ import { useCart } from "../lib/useCart";
 import { money } from "../lib/format";
 import StoreCartCard from "../components/StoreCartCard";
 import type { CalcEntry } from "../lib/types";
-import CheckoutFormDialog from "../components/CheckoutFormDialog";
-import type { CheckoutFormValues } from "../components/CheckoutFormDialog";
+import CheckoutFormDialog, {
+  type CheckoutFormValues,
+} from "../components/CheckoutFormDialog";
 import { useStoresList } from "../lib/useStores";
 import type { DiscountCode } from "../lib/useStores";
 import { APPS_SCRIPT_URL } from "../lib/config";
+import PaymentDialog from "../components/PaymentDialog";
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
@@ -28,6 +31,7 @@ export default function Checkout() {
   const { classes, discountCodes, discountCap } = useStoresList();
   const nav = useNavigate();
 
+  // ----- Cart --> per-store pricing -----
   const nonEmptyStoreIds = useMemo(
     () =>
       Object.entries(lines)
@@ -55,6 +59,7 @@ export default function Checkout() {
     });
   };
 
+  // Grand total before overall discount codes
   const grandTotalRaw = Object.values(calcByStore).reduce(
     (a, s) => a + s.totals.storeTotal,
     0
@@ -64,30 +69,23 @@ export default function Checkout() {
     () =>
       Object.values(calcByStore).flatMap((entry) =>
         (entry.totals.perItem ?? []).map((pi) => ({
-          // for Apps Script / grouping:
           storeId: entry.store.id,
           storeName: entry.store.name,
-
-          // item identity:
           sku: pi.sku,
           name: pi.name,
           img: pi.img,
-
-          // pricing:
           qty: pi.qty,
           unitPrice: pi.unitPrice,
           originalLineTotal: pi.originalLineTotal,
           finalLineTotal: pi.finalLineTotal,
           discounts: pi.discounts ?? [],
-
-          // this is what your Apps Script already expects:
-          lineTotal: pi.finalLineTotal,
+          lineTotal: pi.finalLineTotal, // what Apps Script expects
         }))
       ),
     [calcByStore]
   );
 
-  // ----- Discount codes -----
+  // ----- Overall discount codes -----
   const [codeInput, setCodeInput] = useState("");
   const [appliedCodes, setAppliedCodes] = useState<string[]>([]);
   const [codeError, setCodeError] = useState<string | null>(null);
@@ -124,7 +122,6 @@ export default function Checkout() {
       setCodeError("Code already applied");
       return;
     }
-
     if (match.kind === "percent") {
       const alreadyPercent = appliedCodes.some((code) => {
         const dc = discountCodes.find(
@@ -137,7 +134,6 @@ export default function Checkout() {
         return;
       }
     }
-
     setAppliedCodes((prev) => [...prev, match.code]);
     setCodeInput("");
     setCodeError(null);
@@ -150,6 +146,7 @@ export default function Checkout() {
     setCodeError(null);
   };
 
+  // Compute stacked discounts with a global cap
   const {
     grandBeforeCodes,
     percentCode,
@@ -173,7 +170,6 @@ export default function Checkout() {
 
     let pc: DiscountCode | undefined;
     const absCodes: DiscountCode[] = [];
-
     for (const dc of appliedCodeObjects) {
       if (dc.kind === "percent") pc = dc;
       else absCodes.push(dc);
@@ -206,7 +202,6 @@ export default function Checkout() {
     if (rawPercentAmt + rawAbsTotal > maxAllowedTotal) {
       capWasApplied = true;
       const totalCap = maxAllowedTotal;
-
       usedPercent = Math.min(rawPercentAmt, totalCap);
       const remainingCap = totalCap - usedPercent;
       usedAbs = Math.min(rawAbsTotal, Math.max(0, remainingCap));
@@ -224,70 +219,32 @@ export default function Checkout() {
     };
   }, [grandTotalRaw, appliedCodeObjects, discountCap]);
 
-  const overallDiscounts = useMemo(
-    () =>
-      appliedCodeObjects.length === 0 &&
-      percentDiscountAmount === 0 &&
-      absoluteDiscountAmount === 0
-        ? undefined
-        : {
-            grandTotalBeforeDiscounts: grandBeforeCodes,
-            grandTotalAfterDiscounts: grandAfterCodes,
-            percentDiscountAmount,
-            absoluteDiscountAmount,
-            appliedCodes: appliedCodeObjects.map((dc) => ({
-              code: dc.code,
-              kind: dc.kind,
-              amount: dc.amount,
-              description: dc.description ?? "",
-            })),
-            capApplied,
-            configuredCap: discountCap ?? null,
-          },
-    [
-      grandBeforeCodes,
-      grandAfterCodes,
-      percentDiscountAmount,
-      absoluteDiscountAmount,
-      appliedCodeObjects,
-      capApplied,
-      discountCap,
-    ]
-  );
+  const overallDiscounts =
+    appliedCodeObjects.length === 0 &&
+    percentDiscountAmount === 0 &&
+    absoluteDiscountAmount === 0
+      ? undefined
+      : {
+          grandTotalBeforeDiscounts: grandBeforeCodes,
+          grandTotalAfterDiscounts: grandAfterCodes,
+          percentDiscountAmount,
+          absoluteDiscountAmount,
+          appliedCodes: appliedCodeObjects.map((dc) => ({
+            code: dc.code,
+            kind: dc.kind,
+            amount: dc.amount,
+            description: dc.description ?? "",
+          })),
+          capApplied,
+          configuredCap: discountCap ?? null,
+        };
 
   const effectiveGrandTotal = grandAfterCodes;
 
-  // ----- Submit -----
-  const [open, setOpen] = useState(false);
-
-  const handleSubmitOrder = (data: CheckoutFormValues) => {
-    const payload = {
-      name: data.name,
-      className: data.className,
-      justifications: data.justifications,
-      items: richItems,
-      perStoreTotals: Object.values(calcByStore).map((s) => ({
-        storeId: s.store.id,
-        storeName: s.store.name,
-        itemsSubtotal: s.totals.itemsSubtotal,
-        itemsDiscount: s.totals.itemsDiscount,
-        itemsNet: s.totals.itemsNet,
-        shippingBase: s.totals.shippingBase,
-        shippingDiscount: s.totals.shippingDiscount,
-        shippingNet: s.totals.shippingNet,
-        gst: s.totals.gst,
-        storeTotal: s.totals.storeTotal,
-      })),
-      overallDiscounts: overallDiscounts,
-      grandTotal: effectiveGrandTotal,
-      createdAt: new Date().toISOString(),
-    };
-
-    localStorage.setItem("last-order", JSON.stringify(payload));
-    clear();
-    setOpen(false);
-    nav("/receipt");
-  };
+  // ----- New flow state: details first, payment second -----
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [buyer, setBuyer] = useState<CheckoutFormValues | null>(null);
+  const [payOpen, setPayOpen] = useState(false);
 
   return (
     <Stack spacing={3}>
@@ -295,6 +252,7 @@ export default function Checkout() {
         Cart
       </Typography>
 
+      {/* CART LIST */}
       <Stack spacing={2}>
         {nonEmptyStoreIds.length === 0 && (
           <Paper sx={{ p: 2 }}>
@@ -315,7 +273,9 @@ export default function Checkout() {
         ))}
       </Stack>
 
+      {/* GRAND TOTAL + DISCOUNT CODES */}
       <Paper sx={{ p: 2 }}>
+        {/* Pre-discount total */}
         <Box
           sx={{
             display: "flex",
@@ -330,6 +290,7 @@ export default function Checkout() {
           <Typography fontWeight={600}>{money(grandBeforeCodes)}</Typography>
         </Box>
 
+        {/* Discount code input */}
         {grandBeforeCodes > 0 && (
           <Box sx={{ mt: 1, mb: 1.5 }}>
             <Typography variant="subtitle2" sx={{ mb: 0.5 }}>
@@ -385,6 +346,7 @@ export default function Checkout() {
           </Box>
         )}
 
+        {/* Discount summary */}
         {(percentDiscountAmount > 0 || absoluteDiscountAmount > 0) && (
           <Stack spacing={0.25} sx={{ mb: 1.5 }}>
             {percentDiscountAmount > 0 && (
@@ -418,6 +380,7 @@ export default function Checkout() {
           </Stack>
         )}
 
+        {/* Final total after codes */}
         <Box
           sx={{
             mt: 1,
@@ -440,7 +403,7 @@ export default function Checkout() {
             variant="contained"
             size="large"
             disabled={richItems.length === 0}
-            onClick={() => setOpen(true)}
+            onClick={() => setDetailsOpen(true)} // details first
           >
             Proceed to Checkout
           </Button>
@@ -452,14 +415,26 @@ export default function Checkout() {
         </Box>
       </Paper>
 
+      {/* 1) Checkout details modal (name, class, justifications) */}
       <CheckoutFormDialog
-        open={open}
-        onClose={() => setOpen(false)}
-        onSubmit={handleSubmitOrder}
+        open={detailsOpen}
+        onClose={() => setDetailsOpen(false)}
+        onSubmit={(vals) => {
+          setBuyer(vals);
+          setDetailsOpen(false);
+          setPayOpen(true); // open payment next
+        }}
         items={richItems}
         classes={classes}
+      />
+
+      {/* 2) Payment modal (does Apps Script POST) */}
+      <PaymentDialog
+        open={payOpen && !!buyer}
+        onClose={() => setPayOpen(false)}
+        amount={effectiveGrandTotal}
         appsScriptUrl={APPS_SCRIPT_URL}
-        grandTotal={effectiveGrandTotal}
+        items={richItems}
         perStoreTotals={Object.values(calcByStore).map((s) => ({
           storeId: s.store.id,
           storeName: s.store.name,
@@ -473,6 +448,14 @@ export default function Checkout() {
           storeTotal: s.totals.storeTotal,
         }))}
         overallDiscounts={overallDiscounts}
+        buyer={buyer ?? { name: "", className: "", justifications: [] }}
+        onPaid={(payload) => {
+          localStorage.setItem("last-order", JSON.stringify(payload));
+          clear();
+          setPayOpen(false);
+          setBuyer(null);
+          nav("/receipt");
+        }}
       />
     </Stack>
   );

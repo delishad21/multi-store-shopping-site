@@ -1,3 +1,4 @@
+// src/components/CheckoutFormDialog.tsx
 import { useEffect, useMemo } from "react";
 import {
   Box,
@@ -18,48 +19,6 @@ import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { money } from "../lib/format";
 
-async function postToAppsScript(url: string, payload: unknown) {
-  const body = JSON.stringify(payload);
-
-  console.log("POST →", url, payload);
-  try {
-    await fetch(url, {
-      method: "POST",
-      mode: "no-cors",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8",
-      },
-      body,
-    });
-
-    console.log("request sent (no-cors, response not inspectable)");
-    return { ok: true, status: 0, text: "", json: null };
-  } catch (err) {
-    console.error("network error:", err);
-    return { ok: false, status: 0, text: String(err), json: null };
-  }
-}
-
-/** Apps Script overall-discounts payload shape */
-type OverallDiscountsSummary = {
-  grandTotalBeforeDiscounts: number;
-  grandTotalAfterDiscounts: number;
-  percentDiscountAmount: number;
-  absoluteDiscountAmount: number;
-  appliedCodes: {
-    code: string;
-    kind: "percent" | "absolute";
-    amount: number;
-    description?: string;
-  }[];
-  capApplied?: boolean;
-  configuredCap?: {
-    absoluteMax?: number | null;
-    percentMax?: number | null;
-  } | null;
-};
-
-/** A single justification row (form stores the composite key, not plain sku) */
 type JustEntry = { key: string; text: string };
 
 export type CheckoutFormValues = {
@@ -99,31 +58,12 @@ export default function CheckoutFormDialog({
   onSubmit,
   items,
   classes,
-  appsScriptUrl,
-  grandTotal,
-  perStoreTotals,
-  overallDiscounts,
 }: {
   open: boolean;
   onClose: () => void;
   onSubmit: (values: CheckoutFormValues) => void;
   items: CheckoutItem[];
   classes: string[];
-  appsScriptUrl?: string;
-  grandTotal?: number;
-  perStoreTotals?: Array<{
-    storeId: string;
-    storeName?: string;
-    itemsSubtotal: number;
-    itemsDiscount: number;
-    itemsNet: number;
-    shippingBase: number;
-    shippingDiscount: number;
-    shippingNet: number;
-    gst: number;
-    storeTotal: number;
-  }>;
-  overallDiscounts?: OverallDiscountsSummary;
 }) {
   const itemsInCart = useMemo(
     () => items.filter((i) => (i.qty ?? 0) > 0),
@@ -137,6 +77,11 @@ export default function CheckoutFormDialog({
         item: i,
       })),
     [itemsInCart]
+  );
+
+  const byKey = useMemo(
+    () => Object.fromEntries(optionList.map((o) => [o.key, o.item] as const)),
+    [optionList]
   );
 
   const uniqueKeys = useMemo(
@@ -215,23 +160,6 @@ export default function CheckoutFormDialog({
 
   const visibleJusts = (watch("justifications") ?? []).slice(0, justifyCount);
   const chosenKeys = visibleJusts.map((j) => j?.key ?? "");
-  const optionDisabled = (key: string, index: number) =>
-    key !== "" && chosenKeys.some((k, i) => i !== index && k === key);
-
-  const byKey = useMemo(
-    () => Object.fromEntries(optionList.map((o) => [o.key, o.item] as const)),
-    [optionList]
-  );
-
-  const MenuProps = useMemo(
-    () => ({
-      PaperProps: { style: { maxHeight: 360 } },
-      MenuListProps: { dense: true },
-      keepMounted: true,
-      autoFocus: false,
-    }),
-    []
-  );
 
   const renderOptionRow = (opt: CheckoutItem) => {
     const qty = opt.qty ?? 0;
@@ -279,15 +207,6 @@ export default function CheckoutFormDialog({
     );
   };
 
-  const computeItemsByStore = (list: CheckoutItem[]) => {
-    const out: Record<string, CheckoutItem[]> = {};
-    for (const i of list) {
-      const k = i.storeName || "Store";
-      (out[k] ??= []).push(i);
-    }
-    return out;
-  };
-
   const submitHandler = handleSubmit(async (values) => {
     const compactJusts = (values.justifications ?? [])
       .slice(0, justifyCount)
@@ -297,40 +216,6 @@ export default function CheckoutFormDialog({
         return { sku: it?.sku ?? "", text };
       })
       .filter((j) => j.sku);
-
-    const payloadJusts = (values.justifications ?? [])
-      .slice(0, justifyCount)
-      .filter((j) => j.key && j.text.trim())
-      .map(({ key, text }) => {
-        const it = byKey[key];
-        return {
-          sku: it?.sku ?? "",
-          storeName: it?.storeName ?? "Store",
-          text,
-        };
-      });
-
-    const payload = {
-      name: values.name,
-      className: values.className,
-      justifications: payloadJusts,
-      items,
-      itemsByStore: computeItemsByStore(items),
-      perStoreTotals,
-      grandTotal,
-      overallDiscounts,
-      createdAt: new Date().toISOString(),
-      idemKey: crypto?.randomUUID?.() ?? String(Date.now()),
-    };
-
-    if (appsScriptUrl && !isSubmitting) {
-      const result = await postToAppsScript(appsScriptUrl, payload);
-      if (!result.ok) {
-        alert(
-          `Failed to submit to Google (status ${result.status}). Check console for details.`
-        );
-      }
-    }
 
     onSubmit({
       name: values.name,
@@ -406,7 +291,10 @@ export default function CheckoutFormDialog({
                     helperText={errors.justifications?.[idx]?.key?.message}
                     fullWidth
                     SelectProps={{
-                      MenuProps,
+                      MenuProps: {
+                        PaperProps: { style: { maxHeight: 360 } },
+                        keepMounted: true,
+                      },
                       renderValue: (value) => {
                         const opt = byKey[String(value)];
                         return opt ? (
@@ -424,7 +312,10 @@ export default function CheckoutFormDialog({
                       <MenuItem
                         key={key}
                         value={key}
-                        disabled={optionDisabled(key, idx)}
+                        disabled={
+                          key !== "" &&
+                          chosenKeys.some((k, i) => i !== idx && k === key)
+                        }
                       >
                         {renderOptionRow(item)}
                       </MenuItem>
@@ -457,7 +348,7 @@ export default function CheckoutFormDialog({
           variant="contained"
           disabled={isSubmitting}
         >
-          {isSubmitting ? "Submitting…" : "Submit Order"}
+          {isSubmitting ? "Submitting…" : "Continue to Payment"}
         </Button>
       </DialogActions>
     </Dialog>

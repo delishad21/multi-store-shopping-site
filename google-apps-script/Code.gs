@@ -89,12 +89,37 @@ function findItemLabelFromSku(sku, items) {
   }
   if (!found) return sku;
   var qty = found.qty != null ? found.qty : 0;
-  var lt =
-    found.lineTotal != null
-      ? found.lineTotal
-      : (found.unitPrice != null ? found.unitPrice : 0) * qty;
+  var up = found.unitPrice != null ? found.unitPrice : 0;
+  var lt = found.lineTotal != null ? found.lineTotal : up * qty;
   var store = found.storeName ? found.storeName : "Store";
   return store + " — " + found.name + " x " + qty + " = " + fmtMoney(lt);
+}
+
+function formatAppliedCodes(overall) {
+  if (!overall || !Array.isArray(overall.appliedCodes)) return "";
+  var lines = [];
+  for (var i = 0; i < overall.appliedCodes.length; i++) {
+    var c = overall.appliedCodes[i];
+    if (!c || !c.code) continue;
+    var base;
+    if (c.kind === "percent") {
+      base = c.code + " — " + c.amount + "% off";
+    } else {
+      base = c.code + " — " + fmtMoney(c.amount) + " off";
+    }
+    if (c.description) {
+      base += " · " + c.description;
+    }
+    lines.push(base);
+  }
+  return nl(lines);
+}
+
+// NEW: write a string as plain text (prevents Sheets from truncating/formatting)
+function setTextCell(sheet, row, col, value) {
+  var rg = sheet.getRange(row, col);
+  rg.setNumberFormat("@"); // force "Plain text"
+  rg.setValue(value != null ? String(value) : "");
 }
 
 function doPost(e) {
@@ -103,19 +128,26 @@ function doPost(e) {
       e && e.postData && e.postData.contents ? e.postData.contents : "{}";
     var data = JSON.parse(raw);
 
-    // TODO: put your Google Sheet ID here
-    var ss = SpreadsheetApp.openById("GOOGLE SHEET ID");
+    var ss = SpreadsheetApp.openById(
+      "1sGCas09s_VFkmwe7atn2FRfY5VaMsmP6pfUujo_2lkE"
+    );
     var sheet = ensureSheet(ss, "Orders");
 
-    // Ensure base headers
+    // ---- headers: existing ----
     var hm = getHeaderMap(sheet);
     var colTimestamp = ensureColumn(sheet, hm, "Timestamp");
     var colName = ensureColumn(sheet, hm, "Name");
     var colClass = ensureColumn(sheet, hm, "Class");
-    var colGrandTotal = ensureColumn(sheet, hm, "Grand Total");
+    var colGrandTotal = ensureColumn(sheet, hm, "Grand Total"); // final (after codes)
     var colItemsPretty = ensureColumn(sheet, hm, "Items");
 
-    // Justifications columns (up to 3)
+    // overall discount columns
+    var colGrandBefore = ensureColumn(sheet, hm, "Grand Total (before codes)");
+    var colGrandAfter = ensureColumn(sheet, hm, "Grand Total (after codes)");
+    var colCodesUsed = ensureColumn(sheet, hm, "Discount Codes Used");
+    var colDiscFromCd = ensureColumn(sheet, hm, "Discount from Codes");
+
+    // Justifications (up to 3)
     var JN = 3;
     var jCols = [];
     for (var k = 1; k <= JN; k++) {
@@ -124,7 +156,7 @@ function doPost(e) {
       jCols.push([c1, c2]);
     }
 
-    // Per-store totals columns (dynamic)
+    // Per-store totals (dynamic)
     var perStoreTotals = Array.isArray(data.perStoreTotals)
       ? data.perStoreTotals
       : [];
@@ -148,18 +180,73 @@ function doPost(e) {
       storeCols[storeName] = [cs1, cs2, cs3, cs4];
     }
 
-    // Write row
+    // ---- Payment columns (added at the back) ----
+    var colGiftNum = ensureColumn(sheet, hm, "Gift Card Number");
+    var colGiftBefore = ensureColumn(sheet, hm, "Gift Balance (before)");
+    var colGiftCharge = ensureColumn(sheet, hm, "Gift Charge Amount");
+    var colGiftAfter = ensureColumn(sheet, hm, "Gift Balance (after)");
+
+    // ---- overall discount payload extraction ----
+    var overall = data.overallDiscounts || null;
+
+    var grandBeforeCodes =
+      overall && typeof overall.grandTotalBeforeDiscounts === "number"
+        ? overall.grandTotalBeforeDiscounts
+        : data.grandTotal != null
+        ? data.grandTotal
+        : 0;
+
+    var grandAfterCodes =
+      overall && typeof overall.grandTotalAfterDiscounts === "number"
+        ? overall.grandTotalAfterDiscounts
+        : data.grandTotal != null
+        ? data.grandTotal
+        : 0;
+
+    var percentAmt =
+      overall && typeof overall.percentDiscountAmount === "number"
+        ? overall.percentDiscountAmount
+        : 0;
+    var absoluteAmt =
+      overall && typeof overall.absoluteDiscountAmount === "number"
+        ? overall.absoluteDiscountAmount
+        : 0;
+    var discountFromCodes = percentAmt + absoluteAmt;
+
+    var codesUsedStr = formatAppliedCodes(overall);
+
+    // ---- payment payload extraction ----
+    var pay = data.paymentInfo || data.payment || null;
+
+    var cardNumber =
+      pay && pay.cardNumber != null ? String(pay.cardNumber) : "";
+    var holder = pay && pay.holder ? String(pay.holder) : "";
+
+    // Accept either "exp" (e.g. "08/27") or expMonth/expYear
+    var exp = pay && pay.cardExp ? String(pay.cardExp) : "";
+
+    // CVV as text
+    var cvv = pay && pay.cvv != null ? String(pay.cvv) : "";
+
+    var bal = pay && typeof pay.bal === "number" ? pay.bal : null;
+
+    // ---- write the row ----
     var row = sheet.getLastRow() + 1;
 
     setCell(sheet, row, colTimestamp, new Date());
     setCell(sheet, row, colName, data.name || "");
     setCell(sheet, row, colClass, data.className || "");
-    setCell(
-      sheet,
-      row,
-      colGrandTotal,
-      fmtMoney(data.grandTotal != null ? data.grandTotal : 0)
-    );
+
+    // Old "Grand Total" column is the final amount (after codes)
+    setCell(sheet, row, colGrandTotal, fmtMoney(grandAfterCodes));
+
+    // New overall discount columns
+    setCell(sheet, row, colGrandBefore, fmtMoney(grandBeforeCodes));
+    setCell(sheet, row, colGrandAfter, fmtMoney(grandAfterCodes));
+    setCell(sheet, row, colCodesUsed, codesUsedStr);
+    setCell(sheet, row, colDiscFromCd, fmtMoney(discountFromCodes));
+
+    // Items (pretty)
     setCell(
       sheet,
       row,
@@ -169,6 +256,7 @@ function doPost(e) {
 
     // Justifications
     var justs = Array.isArray(data.justifications) ? data.justifications : [];
+    var itemsForJust = Array.isArray(data.items) ? data.items : [];
     for (var i = 0; i < JN; i++) {
       var pair = jCols[i];
       if (!pair) break;
@@ -177,10 +265,7 @@ function doPost(e) {
         setCell(sheet, row, pair[0], "");
         setCell(sheet, row, pair[1], "");
       } else {
-        var label = findItemLabelFromSku(
-          j.sku,
-          Array.isArray(data.items) ? data.items : []
-        );
+        var label = findItemLabelFromSku(j.sku, itemsForJust);
         setCell(sheet, row, pair[0], label);
         setCell(sheet, row, pair[1], j.text || "");
       }
@@ -218,7 +303,23 @@ function doPost(e) {
       );
     }
 
-    // Wrap the big items cell for readability
+    // Payment Info
+    var pay = data.paymentInfo || null;
+    var giftNum = pay && pay.giftCardNumber ? String(pay.giftCardNumber) : "";
+    var giftBefore =
+      pay && typeof pay.balanceBefore === "number" ? pay.balanceBefore : null;
+    var giftCharge =
+      pay && typeof pay.chargeAmount === "number" ? pay.chargeAmount : null;
+    var giftAfter =
+      pay && typeof pay.balanceAfter === "number" ? pay.balanceAfter : null;
+
+    // write the cells
+    setCell(sheet, row, colGiftNum, giftNum);
+    setCell(sheet, row, colGiftBefore, fmtMoney(giftBefore));
+    setCell(sheet, row, colGiftCharge, fmtMoney(giftCharge));
+    setCell(sheet, row, colGiftAfter, fmtMoney(giftAfter));
+
+    // Wrap big items cell
     sheet.getRange(row, colItemsPretty).setWrap(true);
 
     return ContentService.createTextOutput(

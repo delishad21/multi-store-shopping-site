@@ -63,17 +63,51 @@ Example:
 ```json
 {
   "title": "School Cart",
+  "alerts": [
+    {
+      "message": "Welcome to School Cart! Check out our latest discounts.",
+      "severity": "info"
+    }
+  ],
+  "discountCodes": [
+    {
+      "code": "WELCOME10",
+      "kind": "percent",
+      "amount": 10,
+      "description": "10% off the whole order"
+    },
+    {
+      "code": "MINUS5",
+      "kind": "absolute",
+      "amount": 5,
+      "description": "S$5 off the grand total"
+    }
+  ],
   "classes": ["Class 1", "Class 2", "Class 3"],
   "stores": [
     { "id": "store-1", "name": "Store 1" },
     { "id": "store-2", "name": "Store 2" }
-  ]
+  ],
+  "discountCap": {
+    "percentMax": 100,
+    "absoluteMax": 250
+  }
 }
 ```
 
 - `title` appears in the AppBar.
 - `classes` populates the class dropdown in the checkout dialog.
 - `stores[]` controls the tabs and landing gallery cards.
+- `alerts[]` (optional) array of alert messages to show at the top of the gallery page
+  - `severity`: "info" | "warning" | "error" | "success"
+- `discountCodes[]` (optional) array of discount codes that users can apply at checkout
+  - `code`: the code string users enter
+  - `kind`: "percent" | "absolute"
+  - `amount`: number representing percent or absolute amount
+  - `description`: short description of the discount code
+- `discountCap` (optional) object to cap total discount amounts from discount codes
+  - `percentMax`: maximum total percent discount from all percent-type discount codes
+  - `absoluteMax`: maximum total absolute discount from all absolute-type discount codes
 
 ### Store JSON
 
@@ -85,6 +119,7 @@ Example:
 {
   "id": "rodalink",
   "name": "Rodalink",
+  "showDiscountBreakdown": true,
   "alerts": [
     {
       "message": "18% storewide discount applied at checkout.",
@@ -128,9 +163,30 @@ Each store JSON supports:
 
 - `id`: store identifier
 - `name`: store display name
+- `showDiscountBreakdown`: boolean to control whether per-item discount breakdowns are shown (Used for educational purposes to demonstrate discount calculations)
 - `alerts[]`: array of alert messages to show at the top of the store page
   - `severity`: "info" | "warning" | "error" | "success"
 - `shipping`: object with `baseFee` number
 - `constraints`: object with `maxQtyPerItem` number
 - `discounts[]`: array of DiscountRule objects as described above
 - `products[]`: array of Product objects with `sku`, `name`, `price` and `img` path
+
+### Cards JSON
+
+This application also supports mock gift cards for payment testing. These are located at `/public/stores/cards.json`.
+
+Example:
+
+```json
+{
+  "cards": [
+    { "number": "777700000001", "balance": 100.0 },
+    { "number": "777700000002", "balance": 50.0 }
+  ]
+}
+```
+
+Each card object supports:
+
+- `number`: card number string
+- `balance`: number representing available balance on the card
