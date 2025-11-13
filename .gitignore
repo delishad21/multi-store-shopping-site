@@ -1,3 +1,4 @@
 .env
 /shopping-app/public/stores
 /shopping-app/public/img
+.env.*
